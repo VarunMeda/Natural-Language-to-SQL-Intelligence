@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+data/*.sqlite3
+evaluation/reports/*
+!.gitkeep
+evaluation/datasets/spider_data.zip
+evaluation/datasets/spider_official/
+evaluation/official_spider/__pycache__/
+.pytest_cache/
+.coverage
+
