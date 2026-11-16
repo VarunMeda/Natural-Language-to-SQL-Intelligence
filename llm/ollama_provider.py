@@ -29,7 +29,7 @@ class OllamaProvider:
     def __init__(self, base_url=None, model=None, timeout=None):
         self.base_url=(base_url or settings.ollama_base_url).rstrip('/')
         self.model=model or settings.ollama_model or 'qwen2.5-coder:7b'
-        self.timeout=timeout or settings.query_timeout_seconds
+        self.timeout=timeout or settings.llm_timeout_seconds
 
     def _request(self, prompt, system=None):
         payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0}}

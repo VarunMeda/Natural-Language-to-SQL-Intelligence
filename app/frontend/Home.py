@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from pathlib import Path
 
 # Streamlit sets the import root to this script's directory. Add the repository
@@ -20,6 +21,13 @@ from core.config import settings
 from llm.ollama_provider import OllamaProvider
 import pandas as pd
 
+
+def show_provider_warning(outcome):
+    if outcome.get('provider')=='heuristic-fallback':
+        st.warning(f"LLM unavailable, so this SQL came from the keyword fallback, not the model. Reason: {outcome.get('provider_error','unknown')}")
+    elif outcome.get('provider')=='heuristic':
+        st.info('LLM_PROVIDER is not ollama: SQL comes from the built-in keyword demo generator.')
+
 initialize_database(); initialize_history()
 st.set_page_config(page_title='Natural-Language-to-SQL Intelligence', page_icon='🧠', layout='wide')
 st.title('🧠 Natural-Language-to-SQL Intelligence')
@@ -34,6 +42,7 @@ with home:
     if st.button('Generate, validate, execute',type='primary',use_container_width=True): st.session_state['last_outcome']=run_self_correction(question,strategy)
     outcome=st.session_state.get('last_outcome')
     if outcome:
+        show_provider_warning(outcome)
         st.subheader('Generated SQL'); st.code(outcome['sql'],language='sql')
         c1,c2,c3=st.columns(3); c1.metric('Status','Success' if outcome['success'] else 'Failed'); c2.metric('Correction iterations',outcome['correction_iterations']); c3.metric('Execution ms',outcome['result'].get('duration_ms',0))
         if outcome['success']: st.dataframe(outcome['result']['rows'],use_container_width=True); st.info(explain_result(question,outcome['result']))
@@ -42,7 +51,8 @@ with home:
     if st.button('Compare all prompting strategies'):
         comparison=[]
         for name in ('zero-shot','few-shot','cot'):
-            started=__import__('time').perf_counter(); result=run_self_correction(question,name); comparison.append({'approach':name,'success':result['success'],'latency_ms':result['result'].get('duration_ms',0),'correction_iterations':result['correction_iterations'],'llm_calls':0,'token_consumption':None})
+            started=time.perf_counter(); result=run_self_correction(question,name)
+            comparison.append({'approach':name,'success':result['success'],'latency_ms':round((time.perf_counter()-started)*1000,2),'correction_iterations':result['correction_iterations'],'llm_calls':result.get('llm_calls',0),'token_consumption':result.get('total_tokens'),'provider':result.get('provider')})
         st.session_state['comparison']=comparison
     if st.session_state.get('comparison'):
         st.subheader('Prompt strategy comparison'); frame=pd.DataFrame(st.session_state['comparison']); st.dataframe(frame,use_container_width=True); st.bar_chart(frame.set_index('approach')[['latency_ms','correction_iterations']])
@@ -54,6 +64,7 @@ with agent_tab:
     if st.button('Run SQL agent',type='primary'): st.session_state['agent_outcome']=run_agent(agent_question)
     agent_outcome=st.session_state.get('agent_outcome')
     if agent_outcome:
+        show_provider_warning(agent_outcome)
         st.write('Framework:',agent_outcome.get('framework')); st.code(agent_outcome['sql'],language='sql'); st.json(agent_outcome['actions'])
         if agent_outcome['success']: st.dataframe(agent_outcome['result']['rows'],use_container_width=True); st.info(explain_result(agent_question,agent_outcome['result']))
         else: st.error(agent_outcome['result'].get('error'))

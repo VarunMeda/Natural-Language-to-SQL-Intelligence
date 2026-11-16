@@ -45,10 +45,11 @@ if FastAPI:
         rows=[]
         for strategy in ('zero-shot','few-shot','cot'):
             start=time.perf_counter(); generated=generate_sql(q.question,strategy); result=execute_sql(generated['sql'])
-            rows.append({'approach':strategy,'success':result['success'],'latency_ms':round((time.perf_counter()-start)*1000,2),'llm_calls':generated.get('llm_calls',0),'token_usage':None,'sql':generated['sql']})
+            usage=generated.get('usage') or {}
+            rows.append({'approach':strategy,'success':result['success'],'latency_ms':round((time.perf_counter()-start)*1000,2),'llm_calls':generated.get('llm_calls',0),'token_usage':usage.get('total_tokens'),'provider':generated.get('provider'),'sql':generated['sql']})
         return {'question':q.question,'rows':rows}
     @app.post('/api/sql/explain')
     def explain(q:Query):
-        g=generate_sql(q.question,q.strategy); r=execute_sql(g['sql']); return {'result':r,'explanation':explain_result(q.question,r),'sql':g['sql']}
+        g=generate_sql(q.question,q.strategy); r=execute_sql(g['sql']); return {'result':r,'explanation':explain_result(q.question,r,g['sql']),'sql':g['sql'],'provider':g.get('provider'),'provider_error':g.get('provider_error')}
 else:app=None
 

@@ -22,22 +22,26 @@ The core demo uses SQLite so it runs without a server. PostgreSQL is supported b
 streamlit run app/frontend/Home.py
 ```
 
-Ollama is optional. Set `LLM_PROVIDER=ollama` and `OLLAMA_MODEL` after installing and serving a model. Without an LLM, the deterministic heuristic generator makes the included demonstration questions usable and clearly identifies itself in metadata.
+Ollama is optional. Set `LLM_PROVIDER=ollama` and `OLLAMA_MODEL` after installing and serving a model. `LLM_TIMEOUT_SECONDS` (default 120) controls the model call separately from `QUERY_TIMEOUT_SECONDS` for the database; raise it if a CPU-only model times out. When the model is unreachable, responses carry `provider: heuristic-fallback` with a `provider_error`, and the UI shows a warning. Without an LLM, the deterministic heuristic generator makes the included demonstration questions usable and clearly identifies itself in metadata.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  UI[Streamlit] --> API[FastAPI]
-  API --> G[Strategy generator]
+  UI[Streamlit UI] --> P[Shared Python pipeline]
+  API[FastAPI] --> P
+  P --> G[Strategy generator]
   G --> I[Schema inspector]
-  API --> V[Read-only validator]
+  G --> L[Ollama LLM / heuristic fallback]
+  P --> V[Read-only validator]
   V --> X[Bounded executor]
-  API --> C[Self-correction]
-  API --> A[Tool SQL agent]
+  P --> C[Self-correction]
+  P --> A[LangGraph SQL agent]
   X --> DB[(SQLite/PostgreSQL)]
   X --> E[Result explainer]
 ```
+
+The Streamlit UI and the FastAPI service are independent entry points: both import the same Python modules directly, and the UI does not call the API.
 
 See `docs/architecture.md`, `docs/methodology.md`, and `docs/evaluation.md` for the design and experimental protocol. Benchmark execution refuses to invent data: place an authoritative Spider `dev.json` and database directory under `evaluation/datasets/spider/`, then run `scripts/run_evaluation.py`. The script writes JSON and JSONL reports only after real execution.
 

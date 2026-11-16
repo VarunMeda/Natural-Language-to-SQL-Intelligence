@@ -18,6 +18,8 @@ class Settings:
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     max_correction_attempts: int = int(os.getenv("MAX_CORRECTION_ATTEMPTS", "3"))
     query_timeout_seconds: int = int(os.getenv("QUERY_TIMEOUT_SECONDS", "15"))
+    # Separate from the database timeout: a local 7B model on CPU can take well over 15s.
+    llm_timeout_seconds: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
     max_result_rows: int = int(os.getenv("MAX_RESULT_ROWS", "1000"))
 
 settings = Settings()
