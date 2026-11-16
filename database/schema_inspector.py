@@ -5,7 +5,7 @@ def inspect_schema():
         from database.postgres import sqlalchemy_inspect_schema
         return sqlalchemy_inspect_schema(settings.database_url)
     con=connect(); tables={}
-    for row in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+    for row in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> 'query_history' ORDER BY name"):
         name=row[0]; cols=[]
         for col in con.execute(f"PRAGMA table_info({name})"): cols.append({"name":col[1],"type":col[2],"nullable":not bool(col[3]),"primary_key":bool(col[5])})
         fks=[{"column":r[3],"references_table":r[2],"references_column":r[4]} for r in con.execute(f"PRAGMA foreign_key_list({name})")]

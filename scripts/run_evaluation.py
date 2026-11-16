@@ -19,7 +19,10 @@ def main():
     args=parser.parse_args(); dev=args.data_root/'dev.json'; db=args.data_root/'database'
     if not dev.exists(): raise SystemExit(f'Official Spider dev.json not found: {dev}')
     if not db.exists(): raise SystemExit(f'Official Spider database directory not found: {db}')
-    report=run_spider_experiment(dev,db,args.output_dir,args.count,args.seed,args.strategies,resume=not args.no_resume)
+    try:
+        report=run_spider_experiment(dev,db,args.output_dir,args.count,args.seed,args.strategies,resume=not args.no_resume)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc))
     for strategy,summary in report['summaries'].items(): print(strategy,summary)
 
 if __name__=='__main__': main()

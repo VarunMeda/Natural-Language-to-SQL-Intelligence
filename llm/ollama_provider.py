@@ -32,7 +32,7 @@ class OllamaProvider:
         self.timeout=timeout or settings.llm_timeout_seconds
 
     def _request(self, prompt, system=None):
-        payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0}}
+        payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0,'num_ctx':settings.ollama_num_ctx}}
         if system: payload['system']=system
         request=urllib.request.Request(self.base_url+'/api/generate', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST')
         try:
