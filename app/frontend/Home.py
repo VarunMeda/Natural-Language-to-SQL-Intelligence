@@ -51,11 +51,31 @@ with home:
     if st.button('Compare all prompting strategies'):
         comparison=[]
         for name in ('zero-shot','few-shot','cot'):
-            started=time.perf_counter(); result=run_self_correction(question,name)
-            comparison.append({'approach':name,'success':result['success'],'latency_ms':round((time.perf_counter()-started)*1000,2),'correction_iterations':result['correction_iterations'],'llm_calls':result.get('llm_calls',0),'token_consumption':result.get('total_tokens'),'provider':result.get('provider')})
+            started=time.perf_counter(); result=run_self_correction(question,name); rows=result['result'].get('rows') or []
+            comparison.append({'approach':name,'ran':result['success'],'rows':len(rows) if result['success'] else None,'sql':result['sql'],
+                               'correction_iterations':result['correction_iterations'],'llm_calls':result.get('llm_calls',0),
+                               'tokens':result.get('total_tokens'),'latency_s':round(time.perf_counter()-started,2),'provider':result.get('provider'),
+                               '_answer':sorted(json.dumps(list(r.values()) if isinstance(r,dict) else list(r),default=str) for r in rows) if result['success'] else None})
+        baseline=comparison[0]['_answer']
+        for row in comparison:
+            # Same rows as zero-shot? Lets the audience see whether the strategies agree, not just whether they ran.
+            row['same_result_as_zero_shot']=None if row is comparison[0] or row['_answer'] is None or baseline is None else row['_answer']==baseline
+            del row['_answer']
         st.session_state['comparison']=comparison
     if st.session_state.get('comparison'):
-        st.subheader('Prompt strategy comparison'); frame=pd.DataFrame(st.session_state['comparison']); st.dataframe(frame,use_container_width=True); st.bar_chart(frame.set_index('approach')[['latency_ms','correction_iterations']])
+        st.subheader('Prompt strategy comparison')
+        frame=pd.DataFrame(st.session_state['comparison'])
+        st.dataframe(frame,use_container_width=True,hide_index=True,
+                     column_order=['approach','sql','ran','rows','same_result_as_zero_shot','correction_iterations','llm_calls','tokens','latency_s','provider'],
+                     column_config={'sql':st.column_config.TextColumn('SQL',width='large'),'ran':st.column_config.CheckboxColumn('Ran'),
+                                    'same_result_as_zero_shot':st.column_config.CheckboxColumn('Same rows as zero-shot'),
+                                    'latency_s':st.column_config.NumberColumn('Time (s)',format='%.1f')})
+        st.caption('"Ran" means the query executed without an error, not that the answer is correct. The first strategy\'s time includes loading the model if it was idle.')
+        charts=st.columns(3)
+        for column,(metric,label) in zip(charts,(('latency_s','Time (s)'),('tokens','Tokens'),('correction_iterations','Repair rounds'))):
+            with column:
+                st.markdown(f'**{label}**')
+                st.bar_chart(frame,x='approach',y=metric,x_label='',y_label='',sort=False,height=220)
 with explorer:
     st.subheader('Live database schema'); st.json(inspect_schema())
     if st.button('Refresh schema'): st.rerun()
