@@ -18,6 +18,8 @@ class Settings:
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     # Spider schemas + few-shot examples exceed Ollama's small default context window.
     ollama_num_ctx: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+    # Cap reply length: normal answers are ~150-300 tokens; this stops runaway repetition loops at temperature 0.
+    ollama_num_predict: int = int(os.getenv("OLLAMA_NUM_PREDICT", "1024"))
     max_correction_attempts: int = int(os.getenv("MAX_CORRECTION_ATTEMPTS", "3"))
     query_timeout_seconds: int = int(os.getenv("QUERY_TIMEOUT_SECONDS", "15"))
     # Separate from the database timeout: a local 7B model on CPU can take well over 15s.

@@ -1,6 +1,6 @@
 from database.schema_inspector import schema_text
 from core.config import settings
-from llm.ollama_provider import OllamaProvider, LLMError
+from llm.ollama_provider import OllamaProvider, LLMError, LLMResponseError
 from sql_generator.fewshot import select_examples
 EXAMPLE=("How many students are in each department?","SELECT d.name AS department, COUNT(s.student_id) AS student_count FROM departments d LEFT JOIN students s ON s.department_id=d.department_id GROUP BY d.department_id, d.name ORDER BY student_count DESC")
 def generate_sql(question,strategy="zero-shot", provider=None, schema_context=None, extra_context=None):
@@ -10,6 +10,9 @@ def generate_sql(question,strategy="zero-shot", provider=None, schema_context=No
             prompt=build_prompt(question,strategy,schema_context,extra_context=extra_context)
             result=OllamaProvider().generate_json(prompt, system='You are a careful schema-aware SQL generator. Never invent identifiers. Return only JSON.')
             return {'sql':result['sql'].strip().rstrip(';'),'strategy':strategy,'plan':result.get('plan',[]),'prompt':prompt,'llm_calls':1,'provider':'ollama','model':OllamaProvider().model,'usage':result.get('_usage',{})}
+        except LLMResponseError as exc:
+            # The model answered but produced nothing usable: score it as invalid output, never as heuristic SQL.
+            return {'sql':'','strategy':strategy,'plan':[],'prompt':prompt,'llm_calls':1,'provider':'ollama','model':OllamaProvider().model,'usage':{},'model_output_error':str(exc)}
         except LLMError as exc:
             fallback=_heuristic_sql(question,strategy); fallback.update({'provider':'heuristic-fallback','provider_error':str(exc),'llm_calls':1}); return fallback
     return _heuristic_sql(question,strategy)
@@ -66,6 +69,8 @@ Return JSON only, in the shape {{"plan": ["what was wrong", "fix"], "sql": "..."
     try:
         result=OllamaProvider().generate_json(prompt, system='You repair SQL using only the supplied schema. Return JSON only.')
         return {'sql':result['sql'].strip().rstrip(';'),'plan':result.get('plan',[]),'provider':'ollama','llm_calls':1,'usage':result.get('_usage',{})}
+    except LLMResponseError as exc:
+        return {'sql':failed_sql,'plan':['Model reply was unusable'],'provider':'ollama','llm_calls':1,'usage':{},'model_output_error':str(exc)}
     except LLMError as exc:
         return {'sql':failed_sql,'plan':['Ollama correction unavailable'], 'provider':'heuristic-fallback','provider_error':str(exc),'llm_calls':1,'usage':{}}
 

@@ -135,6 +135,7 @@ def build_nodes(tools, max_retries):
                                  extra_context=_values_context(state.get('samples')))
         meta = {'provider': generated.get('provider'), 'model': generated.get('model')}
         if generated.get('provider_error'): meta['provider_error'] = generated['provider_error']
+        if generated.get('model_output_error'): meta['model_output_error'] = generated['model_output_error']
         return {'sql': generated['sql'], 'initial_sql': generated['sql'], 'plan': generated.get('plan', []), 'provider_meta': meta,
                 **_add_usage(state, generated),
                 'actions': state['actions'] + [{'tool': 'generate_sql', 'summary': 'Planned tables, joins, filters, aggregation and nesting, then wrote SQL'}]}

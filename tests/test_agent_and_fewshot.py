@@ -51,7 +51,7 @@ def fake_llm(prompts):
 class FewShotTests(unittest.TestCase):
     def test_retrieves_structurally_similar_training_examples(self):
         from sql_generator import fewshot
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             data = make_fixture(tmp)
             with patch.dict('os.environ', {'SPIDER_TRAIN_JSON': str(data / 'train_spider.json')}):
                 fewshot._load_bank.cache_clear()
@@ -79,7 +79,7 @@ class AgentTests(unittest.TestCase):
         from evaluation.spider_schema import inspect_spider_database
         from sql_agent.agent import SQLiteFileTools, run_agent_with_tools
         prompts = []
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             db = make_fixture(tmp) / 'database' / 'pets' / 'pets.sqlite'; schema = inspect_spider_database(db)
             tools = SQLiteFileTools(db, lambda sql: execute_benchmark_sql(sql, db, schema))
             with patch('sql_generator.generator.settings', OLLAMA_SETTINGS), \
@@ -97,7 +97,7 @@ class AgentTests(unittest.TestCase):
         calls = {'n': 0}
         def always_bad(prompt, system=None):
             calls['n'] += 1; return {'sql': f'SELECT nope{calls["n"]} FROM pet', 'plan': [], '_usage': {}}
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             from evaluation.benchmark_runner import execute_benchmark_sql
             from evaluation.spider_schema import inspect_spider_database
             db = make_fixture(tmp) / 'database' / 'pets' / 'pets.sqlite'; schema = inspect_spider_database(db)
@@ -121,7 +121,7 @@ class BenchmarkTests(unittest.TestCase):
         from evaluation.benchmark_runner import run_spider_experiment
         from sql_generator import fewshot
         prompts = []
-        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True); self.addCleanup(tmp.cleanup)
         data = make_fixture(tmp.name); out = Path(tmp.name) / 'reports'
         with patch.dict('os.environ', {'SPIDER_TRAIN_JSON': str(data / 'train_spider.json')}), \
              patch('sql_generator.generator.settings', OLLAMA_SETTINGS), \
@@ -153,3 +153,75 @@ class BenchmarkTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ExactMatchCompatibilityTests(unittest.TestCase):
+    def test_alias_references_are_inlined_for_the_spider_parser(self):
+        from evaluation.benchmark_runner import _sqlglot_compatible
+        out = _sqlglot_compatible('SELECT owner, COUNT(*) AS n FROM pet p WHERE p.pet_type <> \'Dog\' GROUP BY owner ORDER BY n DESC')
+        self.assertNotIn(' AS n', out); self.assertIn('ORDER BY COUNT(*) DESC', out)
+        self.assertIn('pet AS p', out); self.assertIn('!=', out); self.assertNotIn('<>', out)
+
+    def test_rescore_updates_saved_report_without_the_model(self):
+        from evaluation.benchmark_runner import rescore_report, write_report
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            data = make_fixture(tmp); out = Path(tmp) / 'reports'
+            record = {'source_index': 0, 'strategy': 'agent', 'db_id': 'pets', 'question': 'q', 'generated_sql': 'SELECT 1',
+                      'reference_sql': 'SELECT 1', 'exact_match': False, 'official_error': 'Error col: flightcount',
+                      'execution_correct': True, 'execution_success': True}
+            write_report({'strategies': ['agent'], 'summaries': {}, 'records': [record]}, out)
+            with patch('evaluation.benchmark_runner.official_scores', return_value={'exact_match': True, 'complexity': 'easy', 'official_error': None}):
+                report, changed = rescore_report(out, data / 'database')
+        self.assertEqual(changed, 1)
+        self.assertEqual(report['summaries']['agent']['exact_match_accuracy_pct'], 100.0)
+        self.assertEqual(report['summaries']['agent']['exact_match_parse_errors'], 0)
+
+
+class ModelReplyTests(unittest.TestCase):
+    def reply(self, text):
+        from tests.test_ollama_provider import FakeResponse
+        with patch('llm.ollama_provider.urllib.request.urlopen', return_value=FakeResponse({'response': text})):
+            from llm.ollama_provider import OllamaProvider
+            return OllamaProvider().generate_json('p')
+
+    def test_sql_is_recovered_from_non_json_replies(self):
+        self.assertEqual(self.reply('```sql\nSELECT name FROM pet;\n```')['sql'], 'SELECT name FROM pet')
+        self.assertEqual(self.reply('{"plan": ["a"], "sql": "SELECT name FROM pet WHERE x = \\"y\\""')['sql'], 'SELECT name FROM pet WHERE x = "y"')
+
+    def test_unusable_reply_is_invalid_output_not_fallback(self):
+        from llm.ollama_provider import LLMResponseError
+        from sql_generator.generator import generate_sql
+        with patch('sql_generator.generator.settings', OLLAMA_SETTINGS), \
+             patch('sql_generator.generator.OllamaProvider.generate_json', side_effect=LLMResponseError('no SQL')):
+            g = generate_sql('q', 'zero-shot', schema_context='TABLE pet (name TEXT)')
+        self.assertEqual(g['provider'], 'ollama'); self.assertEqual(g['sql'], ''); self.assertIn('no SQL', g['model_output_error'])
+
+    def test_benchmark_continues_past_unusable_reply(self):
+        from llm.ollama_provider import LLMResponseError
+        report, _, _ = BenchmarkTests.run_experiment(self, ['zero-shot'], LLMResponseError('garbled'))
+        rows = report['records']
+        self.assertEqual(len(rows), 2); self.assertTrue(all(not r['execution_success'] for r in rows))
+        self.assertTrue(all('garbled' in r['model_output_error'] for r in rows))
+        self.assertEqual(report['summaries']['zero-shot']['invalid_sql_rate_pct'], 100.0)
+
+
+class ReplyLengthCapTests(unittest.TestCase):
+    def test_requests_cap_reply_length(self):
+        import json as _json
+        from tests.test_ollama_provider import FakeResponse
+        from llm.ollama_provider import OllamaProvider
+        sent = {}
+        def fake_urlopen(request, timeout=None):
+            sent.update(_json.loads(request.data)); return FakeResponse({'response': '{"sql": "SELECT 1"}'})
+        with patch('llm.ollama_provider.urllib.request.urlopen', side_effect=fake_urlopen):
+            OllamaProvider().generate_json('p')
+        self.assertEqual(sent['options']['num_predict'], settings.ollama_num_predict)
+        self.assertEqual(sent['options']['temperature'], 0)
+
+    def test_truncated_runaway_reply_still_yields_sql_or_invalid(self):
+        from tests.test_ollama_provider import FakeResponse
+        from llm.ollama_provider import OllamaProvider, LLMResponseError
+        runaway = '{"plan": ["' + 'repeat ' * 400  # cut off mid-plan, no sql field
+        with patch('llm.ollama_provider.urllib.request.urlopen', return_value=FakeResponse({'response': runaway})):
+            with self.assertRaises(LLMResponseError):
+                OllamaProvider().generate_json('p')

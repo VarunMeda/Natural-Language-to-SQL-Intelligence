@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -9,6 +10,14 @@ from core.config import settings
 
 class LLMError(RuntimeError):
     """A user-safe LLM connectivity or response error."""
+
+
+class LLMResponseError(LLMError):
+    """The model answered, but the answer could not be used (no JSON / no SQL).
+
+    This is a model failure on that question, not an outage, so callers should
+    score it as invalid output rather than fall back to the heuristic generator.
+    """
 
 
 @dataclass
@@ -31,8 +40,17 @@ class OllamaProvider:
         self.model=model or settings.ollama_model or 'qwen2.5-coder:7b'
         self.timeout=timeout or settings.llm_timeout_seconds
 
-    def _request(self, prompt, system=None):
-        payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0,'num_ctx':settings.ollama_num_ctx}}
+    def _request(self, prompt, system=None, retries=1):
+        """POST to Ollama; a dropped connection or timeout is retried once before giving up."""
+        for attempt in range(retries+1):
+            try:
+                return self._request_once(prompt, system)
+            except LLMError as exc:
+                if attempt>=retries or 'not found' in str(exc): raise
+                time.sleep(3)
+
+    def _request_once(self, prompt, system=None):
+        payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0,'num_ctx':settings.ollama_num_ctx,'num_predict':settings.ollama_num_predict}}
         if system: payload['system']=system
         request=urllib.request.Request(self.base_url+'/api/generate', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST')
         try:
@@ -58,16 +76,33 @@ class OllamaProvider:
     def generate_json(self, prompt, system=None):
         response=self._request(prompt,system)
         text=response.text.strip().replace('```json','').replace('```','').strip()
+        data=None
         try: data=json.loads(text)
         except json.JSONDecodeError:
             match=re.search(r'\{.*\}',text,re.S)
-            if not match: raise LLMError('Ollama response did not contain the required JSON object')
-            try: data=json.loads(match.group(0))
-            except json.JSONDecodeError as exc: raise LLMError('Ollama returned malformed JSON') from exc
-        if not isinstance(data,dict) or not isinstance(data.get('sql'),str): raise LLMError('Ollama response did not contain a string sql field')
+            if match:
+                try: data=json.loads(match.group(0))
+                except json.JSONDecodeError: data=None
+        if isinstance(data,dict) and isinstance(data.get('sql'),list):
+            data['sql']=' '.join(str(x) for x in data['sql'])
+        if not isinstance(data,dict) or not isinstance(data.get('sql'),str):
+            salvaged=_salvage_sql(text)
+            if salvaged is None:
+                raise LLMResponseError(f'Model reply had no usable JSON or SQL: {text[:200]!r}')
+            data={'sql':salvaged,'plan':['(SQL recovered from a non-JSON reply)']}
         data.setdefault('plan',[])
         data['_usage']={'prompt_tokens':response.prompt_tokens,'completion_tokens':response.completion_tokens,'total_tokens':response.total_tokens,'duration_ns':response.total_duration_ns}
         return data
 
     def generate_explanation(self, prompt, system=None): return self._request(prompt,system)
 
+
+
+def _salvage_sql(text):
+    """Recover a SQL statement when the model ignored the JSON format."""
+    match=re.search(r'"sql"\s*:\s*"((?:[^"\\]|\\.)*)"',text,re.S)  # truncated or invalid JSON with an sql field
+    if match:
+        try: return json.loads(f'"{match.group(1)}"').strip()
+        except json.JSONDecodeError: pass
+    match=re.search(r'\b(SELECT|WITH)\b[\s\S]*?(?=;|```|$)',text,re.I)
+    return match.group(0).strip() if match else None
