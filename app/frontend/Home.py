@@ -22,6 +22,11 @@ from llm.ollama_provider import OllamaProvider
 import pandas as pd
 
 
+def answer_key(rows):
+    """Order-insensitive fingerprint of a result: ignores row order, column order and column names."""
+    return sorted(json.dumps(sorted(str(v) for v in (r.values() if isinstance(r,dict) else r))) for r in rows)
+
+
 def show_provider_warning(outcome):
     if outcome.get('provider')=='heuristic-fallback':
         st.warning(f"LLM unavailable, so this SQL came from the keyword fallback, not the model. Reason: {outcome.get('provider_error','unknown')}")
@@ -55,7 +60,7 @@ with home:
             comparison.append({'approach':name,'ran':result['success'],'rows':len(rows) if result['success'] else None,'sql':result['sql'],
                                'correction_iterations':result['correction_iterations'],'llm_calls':result.get('llm_calls',0),
                                'tokens':result.get('total_tokens'),'latency_s':round(time.perf_counter()-started,2),'provider':result.get('provider'),
-                               '_answer':sorted(json.dumps(list(r.values()) if isinstance(r,dict) else list(r),default=str) for r in rows) if result['success'] else None})
+                               '_answer':answer_key(rows) if result['success'] else None})
         baseline=comparison[0]['_answer']
         for row in comparison:
             # Same rows as zero-shot? Lets the audience see whether the strategies agree, not just whether they ran.

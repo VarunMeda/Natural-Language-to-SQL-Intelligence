@@ -50,7 +50,7 @@ class OllamaProvider:
                 time.sleep(3)
 
     def _request_once(self, prompt, system=None):
-        payload={'model':self.model,'prompt':prompt,'stream':False,'options':{'temperature':0,'num_ctx':settings.ollama_num_ctx,'num_predict':settings.ollama_num_predict}}
+        payload={'model':self.model,'prompt':prompt,'stream':False,'keep_alive':settings.ollama_keep_alive,'options':{'temperature':0,'num_ctx':settings.ollama_num_ctx,'num_predict':settings.ollama_num_predict}}
         if system: payload['system']=system
         request=urllib.request.Request(self.base_url+'/api/generate', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST')
         try:

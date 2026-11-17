@@ -217,6 +217,7 @@ class ReplyLengthCapTests(unittest.TestCase):
             OllamaProvider().generate_json('p')
         self.assertEqual(sent['options']['num_predict'], settings.ollama_num_predict)
         self.assertEqual(sent['options']['temperature'], 0)
+        self.assertEqual(sent['keep_alive'], settings.ollama_keep_alive)
 
     def test_truncated_runaway_reply_still_yields_sql_or_invalid(self):
         from tests.test_ollama_provider import FakeResponse

@@ -47,7 +47,7 @@ streamlit run app\frontend\Home.py              # app at http://localhost:8501
 uvicorn app.backend.main:app --reload           # API at http://127.0.0.1:8000/docs
 ```
 
-The app's sidebar should show **Server: Connected** and **Model: Ready**. The first question takes 30–60 seconds while the model loads. Open the app in a normal browser; VS Code's built-in browser does not render Streamlit's updates reliably.
+The app's sidebar should show **Server: Connected** and **Model: Ready**. The first question takes 30–60 seconds while the model loads; after that it stays loaded for 30 minutes of inactivity (`OLLAMA_KEEP_ALIVE`). Open the app in a normal browser; VS Code's built-in browser does not render Streamlit's updates reliably.
 
 Without Ollama the app falls back to a keyword-based generator that only handles the demo questions below. Responses then carry `provider: heuristic-fallback` and the app shows a warning.
 
@@ -66,6 +66,7 @@ Example questions for the demo database:
 | `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Model served by Ollama. |
 | `OLLAMA_NUM_CTX` | `8192` | Context window; Spider schemas and few-shot examples exceed Ollama's small default. |
 | `OLLAMA_NUM_PREDICT` | `1024` | Reply length cap; stops the rare runaway reply at temperature 0. |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded after a call; avoids a reload delay between questions. |
 | `LLM_TIMEOUT_SECONDS` | `120` | Time limit per model call. |
 | `QUERY_TIMEOUT_SECONDS` | `15` | Time limit for database access. |
 | `MAX_CORRECTION_ATTEMPTS` | `3` | Repair rounds for self-correction and the agent. |

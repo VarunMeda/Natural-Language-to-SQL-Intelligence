@@ -20,6 +20,8 @@ class Settings:
     ollama_num_ctx: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
     # Cap reply length: normal answers are ~150-300 tokens; this stops runaway repetition loops at temperature 0.
     ollama_num_predict: int = int(os.getenv("OLLAMA_NUM_PREDICT", "1024"))
+    # Keep the model in memory between calls (Ollama unloads it after 5 idle minutes by default).
+    ollama_keep_alive: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
     max_correction_attempts: int = int(os.getenv("MAX_CORRECTION_ATTEMPTS", "3"))
     query_timeout_seconds: int = int(os.getenv("QUERY_TIMEOUT_SECONDS", "15"))
     # Separate from the database timeout: a local 7B model on CPU can take well over 15s.
